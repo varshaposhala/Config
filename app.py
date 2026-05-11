@@ -266,7 +266,7 @@ def filter_coding_pool(df_all, course_full, wanted_modules, include_sets):
 
 
 # -------------------------
-# Row-wise output (1 row per question id)
+# Row-wise output (1 row per question)
 # -------------------------
 def build_pool_map(work: pd.DataFrame) -> dict:
     grp = (
@@ -313,6 +313,7 @@ def build_coding_rows_per_question(
     marks_easy: int,
     marks_medium: int,
     marks_hard: int,
+    show_question_id: bool,
 ) -> pd.DataFrame:
     if picked.empty:
         return pd.DataFrame()
@@ -339,7 +340,8 @@ def build_coding_rows_per_question(
                 "Difficulty Level": r["Difficulty Parsed"],
                 "Sub Topic": "",
                 "Exclusive Tags": r["Tag"],
-                "Exclusive Tags-2": r["qid_display"],
+                "Question Tag": normalize_text(r.get("Question Tag", "")),
+                "Exclusive Tags-2": r["qid_display"] if show_question_id else "",
                 "Number of Questions": 1,
                 "Marks for Each Question": marks_for_diff(r["Difficulty Parsed"]),
                 "pool": pool_map.get(key, 0),
@@ -397,6 +399,7 @@ def build_dual_section_formatted_csv(mcq_df: pd.DataFrame, coding_df: pd.DataFra
             "Difficulty Level",
             "Sub Topic",
             "Exclusive Tags",
+            "Question Tag",
             "Exclusive Tags-2",
             "Number of Questions",
             "Marks for Each Question",
@@ -412,6 +415,7 @@ def build_dual_section_formatted_csv(mcq_df: pd.DataFrame, coding_df: pd.DataFra
                     r["Difficulty Level"],
                     r["Sub Topic"],
                     r["Exclusive Tags"],
+                    r["Question Tag"],
                     r["Exclusive Tags-2"],
                     r["Number of Questions"],
                     r["Marks for Each Question"],
@@ -549,7 +553,7 @@ mcq_rows = pd.DataFrame()
 coding_rows = pd.DataFrame()
 
 # -------------------------
-# Build MCQ rows
+# Build MCQ
 # -------------------------
 if section_choice in ("MCQ", "Both"):
     if not selected_units:
@@ -559,7 +563,10 @@ if section_choice in ("MCQ", "Both"):
     wanted_u = add_prefix(selected_units, "UNIT")
     pool_mcq = filter_mcq_pool(df, course_full, wanted_u, include_sets=include_sets)
 
-    sug = suggest_closest_tags(wanted_u, sorted(pool_mcq["Unit Tag of Question"].dropna().astype(str).unique().tolist()))
+    sug = suggest_closest_tags(
+        wanted_u,
+        sorted(pool_mcq["Unit Tag of Question"].dropna().astype(str).unique().tolist()),
+    )
     if sug:
         st.warning("Some units are not exact matches:")
         st.json(sug)
@@ -572,7 +579,7 @@ if section_choice in ("MCQ", "Both"):
     mcq_rows = build_mcq_rows_per_question(picked_mcq, pool_mcq)
 
 # -------------------------
-# Build Coding rows
+# Build Coding
 # -------------------------
 if section_choice in ("Coding", "Both"):
     if not selected_modules:
@@ -587,7 +594,10 @@ if section_choice in ("Coding", "Both"):
     wanted_m = add_prefix(selected_modules, "MODULE")
     pool_cd = filter_coding_pool(df, course_full, wanted_m, include_sets=include_sets)
 
-    sug = suggest_closest_tags(wanted_m, sorted(pool_cd["Module Tag of Question"].dropna().astype(str).unique().tolist()))
+    sug = suggest_closest_tags(
+        wanted_m,
+        sorted(pool_cd["Module Tag of Question"].dropna().astype(str).unique().tolist()),
+    )
     if sug:
         st.warning("Some modules are not exact matches:")
         st.json(sug)
@@ -606,7 +616,12 @@ if section_choice in ("Coding", "Both"):
         st.warning(f"Coding: requested {coding_total_req}, got {len(picked_cd)}.")
 
     coding_rows = build_coding_rows_per_question(
-        picked_cd, pool_cd, marks_easy, marks_medium, marks_hard
+        picked_cd,
+        pool_cd,
+        marks_easy,
+        marks_medium,
+        marks_hard,
+        show_question_id=(not include_sets),
     )
 
 # -------------------------
