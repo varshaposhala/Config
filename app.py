@@ -25,125 +25,19 @@ REQUIRED_COLUMNS = [
 ]
 
 
-# -------------------------
-# Topic parsing (display + section kind)
-# -------------------------
 def normalize_text(x) -> str:
     return str(x).strip() if pd.notna(x) else ""
-
-
-def format_topic_parts(parts: list[str]) -> str:
-    """Turn token list into display string; keep short ALLCAPS tokens as-is."""
-    out = []
-    for p in parts:
-        if not p:
-            continue
-        if p.isupper() and len(p) <= 5:
-            out.append(p)
-        else:
-            out.append(p.capitalize())
-    return " ".join(out).strip()
-
-
-def display_topic_from_question_topic(topic_raw: str) -> str:
-    """
-    Examples:
-      TOPIC_CPP_MCQ -> CPP
-      TOPIC_CPP_Code_Analysis / TOPIC_CPP_CODE_ANALYSIS -> CPP Code Analysis
-    """
-    t = normalize_text(topic_raw)
-    if not t:
-        return "Unknown"
-
-    u = t.upper()
-    if not u.startswith("TOPIC_"):
-        # Not standard TOPIC_ format: best-effort
-        return format_topic_parts(t.split("_"))
-
-    body = t[len("TOPIC_") :]  # preserve original casing for splitting
-    bu = body.upper()
-
-    # Special: ..._Code_Analysis (any casing)
-    m = re.search(r"_(CODE_)?ANALYSIS$", bu)
-    if bu.endswith("CODE_ANALYSIS") or bu.endswith("_ANALYSIS") or "CODE_ANALYSIS" in bu:
-        # strip trailing Code_Analysis segment(s)
-        # normalize split on underscores
-        tokens = body.split("_")
-        # find trailing pattern like Code + Analysis OR CODE + ANALYSIS
-        lower_tokens = [x.lower() for x in tokens]
-        if len(lower_tokens) >= 2 and lower_tokens[-2] == "code" and lower_tokens[-1] == "analysis":
-            prefix_tokens = tokens[:-2]
-            base = format_topic_parts([x.upper() if x.isupper() else x for x in prefix_tokens])
-            return f"{base} Code Analysis".strip() if base else "Code Analysis"
-
-    # Strip common trailing type markers (longest / most specific first)
-    cut_variants = [
-        "_SQL_CODING",
-        "_CODING",
-        "_MCQ",
-        "_CODE_ANALYSIS",
-    ]
-    tmp = bu
-    for suf in cut_variants:
-        if tmp.endswith(suf):
-            tmp = tmp[: -len(suf)]
-            break
-
-    # tmp is UPPERCASE remainder; map back to nicer display from original body by re-splitting
-    # We rebuild from body by cutting suffix tokens if possible
-    tokens = body.split("_")
-    tu = [x.upper() for x in tokens]
-
-    def strip_suffix_tokens(toks_upper, toks_orig):
-        s = "_".join(toks_upper)
-        for suf in cut_variants:
-            su = suf.strip("_").split("_")
-            if len(toks_upper) >= len(su) and toks_upper[-len(su) :] == su:
-                return toks_orig[: -len(su)]
-        return toks_orig
-
-    tokens2 = strip_suffix_tokens(tu, tokens)
-    if not tokens2:
-        return format_topic_parts(tmp.split("_"))
-
-    # Uppercase tokens for acronym detection
-    tokens_u = [x.upper() for x in tokens2]
-    return format_topic_parts(tokens_u)
-
-
-def section_kind_from_question_topic(topic_raw: str) -> str:
-    """
-    Returns:
-      - 'MCQ' for MCQ + Code Analysis style topics
-      - 'SQL Coding' for coding topics
-      - 'Other'
-    """
-    u = normalize_text(topic_raw).upper()
-    if not u.startswith("TOPIC_"):
-        return "Other"
-
-    if u.endswith("_CODING") or u.endswith("_SQL_CODING") or "_SQL_CODING" in u:
-        return "SQL Coding"
-
-    if u.endswith("_MCQ") or u.endswith("_CODE_ANALYSIS") or "_CODE_ANALYSIS" in u:
-        return "MCQ"
-
-    # Fallback: if contains MCQ token
-    if re.search(r"(^|_)MCQ($|_)", u):
-        return "MCQ"
-
-    return "Other"
-
-
-def parse_difficulty(diff: str) -> str:
-    d = normalize_text(diff).upper().replace("DIFFICULTY_", "")
-    return d.title() if d else "Unknown"
 
 
 def split_extra_tags(extra_tags: str):
     if pd.isna(extra_tags):
         return []
     return [x.strip().upper() for x in str(extra_tags).split(",") if x.strip()]
+
+
+def parse_difficulty(diff: str) -> str:
+    d = normalize_text(diff).upper().replace("DIFFICULTY_", "")
+    return d.title() if d else "Unknown"
 
 
 def get_library(extra_tags: str) -> str:
@@ -258,6 +152,132 @@ def get_display_qid(row) -> str:
     return normalize_text(row.get("Extra Question ID")) or normalize_text(row.get("Question ID"))
 
 
+def format_topic_parts(parts: list[str]) -> str:
+    out = []
+    for p in parts:
+        if not p:
+            continue
+        if p.isupper() and len(p) <= 5:
+            out.append(p)
+        else:
+            out.append(p.capitalize())
+    return " ".join(out).strip()
+
+
+def display_topic_from_question_topic(topic_raw: str) -> str:
+    t = normalize_text(topic_raw)
+    if not t:
+        return "Unknown"
+
+    u = t.upper()
+    if not u.startswith("TOPIC_"):
+        return format_topic_parts(t.split("_"))
+
+    body = t[len("TOPIC_") :]
+    bu = body.upper()
+
+    lower_tokens = [x.lower() for x in body.split("_")]
+    if len(lower_tokens) >= 2 and lower_tokens[-2] == "code" and lower_tokens[-1] == "analysis":
+        prefix_tokens = body.split("_")[:-2]
+        tokens_u = [x.upper() for x in prefix_tokens]
+        base = format_topic_parts(tokens_u)
+        return f"{base} Code Analysis".strip() if base else "Code Analysis"
+
+    cut_variants = ["_SQL_CODING", "_CODING", "_MCQ", "_CODE_ANALYSIS", "_CODE"]
+    tmp = bu
+    for suf in cut_variants:
+        if tmp.endswith(suf):
+            tmp = tmp[: -len(suf)]
+            break
+
+    tokens = body.split("_")
+    tu = [x.upper() for x in tokens]
+
+    def strip_suffix_tokens(toks_upper, toks_orig):
+        for suf in cut_variants:
+            su = suf.strip("_").split("_")
+            if len(toks_upper) >= len(su) and toks_upper[-len(su) :] == su:
+                return toks_orig[: -len(su)]
+        return toks_orig
+
+    tokens2 = strip_suffix_tokens(tu, tokens)
+    if not tokens2:
+        return format_topic_parts(tmp.split("_"))
+
+    tokens_u = [x.upper() for x in tokens2]
+    return format_topic_parts(tokens_u)
+
+
+def section_kind_from_question_topic(topic_raw: str) -> str:
+    """
+    Generic:
+      MCQ: *_MCQ or *_CODE_ANALYSIS
+      CODING: *_CODING / *_SQL_CODING / *_CODE (but not code analysis)
+    """
+    u = normalize_text(topic_raw).upper()
+    if not u.startswith("TOPIC_"):
+        return "Other"
+
+    if u.endswith("_MCQ") or u.endswith("_CODE_ANALYSIS") or "_CODE_ANALYSIS" in u:
+        return "MCQ"
+
+    if u.endswith("_CODING") or u.endswith("_SQL_CODING") or "_SQL_CODING" in u:
+        return "CODING"
+
+    if u.endswith("_CODE"):
+        return "CODING"
+
+    if re.search(r"(^|_)MCQ($|_)", u):
+        return "MCQ"
+
+    return "Other"
+
+
+def is_mcq_row(row) -> bool:
+    tags = split_extra_tags(row.get("Extra Tags", ""))
+    lib = normalize_text(row.get("Question Library", ""))
+
+    if row.get("Section Kind") != "MCQ":
+        return False
+
+    if "IS_PRIVATE" in tags and "IS_PUBLIC" not in tags:
+        return False
+
+    if "IS_PUBLIC" in tags:
+        return True
+
+    if lib == "Topin Questions":
+        return True
+
+    # CPP / multi-language sheets often omit library text; allow Unknown unless explicitly private-only
+    if lib == "Unknown" and "IS_PRIVATE" not in tags:
+        return True
+
+    return False
+
+
+def is_coding_row(row) -> bool:
+    tags = split_extra_tags(row.get("Extra Tags", ""))
+    lib = normalize_text(row.get("Question Library", ""))
+
+    if row.get("Section Kind") != "CODING":
+        return False
+
+    if "IS_PUBLIC" in tags and "IS_PRIVATE" not in tags:
+        return False
+
+    if "IS_PRIVATE" in tags:
+        return True
+
+    if lib == "My Questions":
+        return True
+
+    if lib == "Unknown" and "IS_PUBLIC" not in tags:
+        return True
+
+    return False
+
+
 def pick_questions_random_diverse(
     df_pool: pd.DataFrame,
     total_needed: int,
@@ -324,12 +344,9 @@ def do_pick(pool, n, tags, diffs, use_random_spread, random_seed):
     return pool.head(n)
 
 
-# -------------------------
-# Filtering pools (uses per-row topic label + kind)
-# -------------------------
 def filter_mcq_pool(df_all, course_full, wanted_units, include_sets):
     w = df_all[df_all["Course Tag of Question"].str.upper() == course_full.upper()].copy()
-    w = w[(w["Section Kind"] == "MCQ") & (w["Question Library"] == "Topin Questions")]
+    w = w[w.apply(is_mcq_row, axis=1)]
     w = w[w["Unit Tag of Question"].str.upper().isin([x.upper() for x in wanted_units])]
     w["Tag"] = w["Unit Tag of Question"]
     w = w.drop_duplicates(subset=["Question ID", "Tag", "Difficulty Parsed"], keep="first")
@@ -345,7 +362,7 @@ def filter_mcq_pool(df_all, course_full, wanted_units, include_sets):
 
 def filter_coding_pool(df_all, course_full, wanted_modules, include_sets):
     w = df_all[df_all["Course Tag of Question"].str.upper() == course_full.upper()].copy()
-    w = w[(w["Section Kind"] == "SQL Coding") & (w["Question Library"] == "My Questions")]
+    w = w[w.apply(is_coding_row, axis=1)]
     w = w[w["Module Tag of Question"].str.upper().isin([x.upper() for x in wanted_modules])]
     w["Tag"] = w["Module Tag of Question"]
     w = w.drop_duplicates(subset=["Question ID", "Tag", "Difficulty Parsed"], keep="first")
@@ -378,7 +395,6 @@ def dominant_topic_label(picked: pd.DataFrame, fallback: str) -> str:
     labels = [x for x in labels if normalize_text(x)]
     if not labels:
         return fallback
-    # most common
     s = pd.Series(labels)
     return str(s.value_counts().idxmax())
 
@@ -396,7 +412,7 @@ def build_mcq_rows_per_question(picked: pd.DataFrame, work: pd.DataFrame) -> pd.
         key = (r["Tag"], r["Difficulty Parsed"], r["Question Library"])
         rows.append(
             {
-                "Question Library": r["Question Library"],
+                "Question Library": r["Question Library"] if normalize_text(r["Question Library"]) != "Unknown" else "Topin Questions",
                 "Topic": r["Topic Display"],
                 "Difficulty Level": r["Difficulty Parsed"],
                 "Sub Topic": "",
@@ -436,14 +452,12 @@ def build_coding_rows_per_question(
 
     for _, r in p.iterrows():
         key = (r["Tag"], r["Difficulty Parsed"], r["Question Library"])
-        topic_disp = normalize_text(r.get("Topic Display")) or "SQL Coding"
-        # For coding rows, Topic column should be "<Subject> Coding" style (matches your examples for SQL)
-        # If topic_disp already ends with Coding, keep; else append Coding
+        topic_disp = normalize_text(r.get("Topic Display")) or "Coding"
         topic_col = topic_disp if topic_disp.lower().endswith("coding") else f"{topic_disp} Coding"
 
         rows.append(
             {
-                "Question Library": r["Question Library"],
+                "Question Library": r["Question Library"] if normalize_text(r["Question Library"]) != "Unknown" else "My Questions",
                 "Topic": topic_col,
                 "Difficulty Level": r["Difficulty Parsed"],
                 "Sub Topic": "",
@@ -464,6 +478,7 @@ def build_dual_section_formatted_csv(
     coding_df: pd.DataFrame,
     mcq_section_name: str,
     coding_section_name: str,
+    coding_section_type_label: str,
 ) -> str:
     buf = io.StringIO()
     w = csv.writer(buf, lineterminator="\n")
@@ -500,7 +515,7 @@ def build_dual_section_formatted_csv(
 
     w.writerow([])
 
-    w.writerow(["Section Type", "SQL"])
+    w.writerow(["Section Type", coding_section_type_label])
     w.writerow(["Name of the section", coding_section_name])
     w.writerow(["Time Limit (in Mins)", "45"])
     w.writerow(
@@ -570,6 +585,12 @@ df["Extra Question ID"] = df["Extra Tags"].apply(extract_question_id_from_extra)
 
 st.success(f"File loaded. Rows: {len(df)}")
 
+with st.expander("Debug: topic detection (first 30 rows)", expanded=False):
+    dbg = df[
+        ["Question Topic", "Topic Display", "Section Kind", "Question Library", "Extra Tags"]
+    ].head(30)
+    st.dataframe(dbg, use_container_width=True)
+
 course_tags = strip_prefix(sorted([x for x in df["Course Tag of Question"].unique() if x]), "COURSE")
 unit_tags = strip_prefix(sorted([x for x in df["Unit Tag of Question"].unique() if x]), "UNIT")
 module_tags = strip_prefix(sorted([x for x in df["Module Tag of Question"].unique() if x]), "MODULE")
@@ -583,9 +604,6 @@ with c2:
 with c3:
     st.dataframe(pd.DataFrame({"Module Tag": module_tags}), use_container_width=True, height=200)
 
-# -------------------------
-# Inputs
-# -------------------------
 st.subheader("Step 3: Create Section")
 
 SECTION_OPTIONS = [("MCQ", "MCQ"), ("Coding", "Coding"), ("Both", "MCQ and Coding")]
@@ -666,9 +684,6 @@ coding_rows = pd.DataFrame()
 picked_mcq = pd.DataFrame()
 picked_cd = pd.DataFrame()
 
-# -------------------------
-# Build MCQ
-# -------------------------
 if section_choice in ("MCQ", "Both"):
     if not selected_units:
         st.error("Select at least one unit for MCQ.")
@@ -676,6 +691,8 @@ if section_choice in ("MCQ", "Both"):
 
     wanted_u = add_prefix(selected_units, "UNIT")
     pool_mcq = filter_mcq_pool(df, course_full, wanted_u, include_sets=include_sets)
+
+    st.caption(f"MCQ candidate rows after course+unit+rules: **{len(pool_mcq)}**")
 
     sug = suggest_closest_tags(
         wanted_u,
@@ -692,9 +709,6 @@ if section_choice in ("MCQ", "Both"):
 
     mcq_rows = build_mcq_rows_per_question(picked_mcq, pool_mcq)
 
-# -------------------------
-# Build Coding
-# -------------------------
 if section_choice in ("Coding", "Both"):
     if not selected_modules:
         st.error("Select at least one module for Coding.")
@@ -707,6 +721,8 @@ if section_choice in ("Coding", "Both"):
 
     wanted_m = add_prefix(selected_modules, "MODULE")
     pool_cd = filter_coding_pool(df, course_full, wanted_m, include_sets=include_sets)
+
+    st.caption(f"Coding candidate rows after course+module+rules: **{len(pool_cd)}**")
 
     sug = suggest_closest_tags(
         wanted_m,
@@ -738,16 +754,16 @@ if section_choice in ("Coding", "Both"):
         show_question_id=(not include_sets),
     )
 
-# Section names derived from picked topics
 mcq_topic_label = dominant_topic_label(picked_mcq, "SQL")
 coding_topic_label = dominant_topic_label(picked_cd, "SQL")
 
 mcq_section_name = f"{mcq_topic_label} MCQs"
 coding_section_name = f"{coding_topic_label} Coding"
 
-# -------------------------
-# Output
-# -------------------------
+coding_section_type_label = mcq_topic_label  # placeholder, overwritten:
+# Prefer first token of coding label for section type column (CPP/SQL/PYTHON), fallback SQL
+coding_section_type_label = coding_topic_label.split()[0].upper() if coding_topic_label else "SQL"
+
 st.subheader("Step 4: Output")
 
 if section_choice == "MCQ":
@@ -767,7 +783,9 @@ elif section_choice == "Coding":
     if coding_rows.empty:
         st.warning("No Coding rows.")
     else:
-        st.markdown(f"**Section Type:** SQL  \n**Name of the section:** {coding_section_name}  \n**Time Limit (in Mins):** 45")
+        st.markdown(
+            f"**Section Type:** {coding_section_type_label}  \n**Name of the section:** {coding_section_name}  \n**Time Limit (in Mins):** 45"
+        )
         st.dataframe(coding_rows, use_container_width=True)
     st.download_button(
         "Download Coding CSV",
@@ -777,18 +795,26 @@ elif section_choice == "Coding":
     )
 
 else:
-    st.markdown("### Formatted output (MCQ + SQL Coding)")
+    st.markdown("### Formatted output (MCQ + Coding)")
     st.markdown(f"**MCQ** — Section Type: MCQ | Name: {mcq_section_name} | Time: 30 min")
     st.dataframe(mcq_rows if not mcq_rows.empty else pd.DataFrame(), use_container_width=True)
 
     st.markdown("---")
-    st.markdown(f"**SQL Coding** — Section Type: SQL | Name: {coding_section_name} | Time: 45 min")
+    st.markdown(
+        f"**Coding** — Section Type: {coding_section_type_label} | Name: {coding_section_name} | Time: 45 min"
+    )
     st.dataframe(coding_rows if not coding_rows.empty else pd.DataFrame(), use_container_width=True)
 
-    formatted = build_dual_section_formatted_csv(mcq_rows, coding_rows, mcq_section_name, coding_section_name)
+    formatted = build_dual_section_formatted_csv(
+        mcq_rows,
+        coding_rows,
+        mcq_section_name,
+        coding_section_name,
+        coding_section_type_label,
+    )
     st.text_area("Preview (formatted CSV)", formatted, height=320)
     st.download_button(
-        "Download formatted CSV (MCQ block + SQL block)",
+        "Download formatted CSV (MCQ block + Coding block)",
         data=formatted.encode("utf-8"),
         file_name="mcq_and_coding_formatted.csv",
         mime="text/csv",
