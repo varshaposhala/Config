@@ -462,7 +462,7 @@ def build_coding_rows_per_question(
                 "Difficulty Level": r["Difficulty Parsed"],
                 "Sub Topic": "",
                 "Exclusive Tags": r["Tag"],
-                "Question Tag": normalize_text(r.get("Question Tag", "")),
+                "Question Tag": normalize_text(r.get("Question Tag", "")).lower(),
                 "Exclusive Tags-2": r["qid_display"] if show_question_id else "",
                 "Number of Questions": 1,
                 "Marks for Each Question": marks_for_diff(r["Difficulty Parsed"]),
